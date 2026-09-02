@@ -314,8 +314,8 @@ async function initAppData() {
   
   if (state.businesses.length === 0) {
     await db.from('businesses').insert([
-      { user_id: currentUser.id, nickname: 'Andersen', name: 'Andersen', address: 'Address 1', is_default: true },
-      { user_id: currentUser.id, nickname: 'Secondary', name: 'Secondary', address: 'Address 2', is_default: false }
+      { user_id: currentUser.id, nickname: 'Default Profile', name: 'My Main Company', address: 'Address 1', is_default: true },
+      { user_id: currentUser.id, nickname: 'Secondary Profile', name: 'My Secondary Company', address: 'Address 2', is_default: false }
     ]);
     await fetchAllData();
   }
@@ -386,7 +386,7 @@ function restorePersistedForm() {
     cSel.innerHTML = state.customers.map(c => `<option value="${c.id}" ${c.id === activeDraft.customerId ? 'selected' : ''}>${c.name}</option>`).join('');
 
     const bSel = document.getElementById('inv-biz-select');
-    bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === activeDraft.businessId ? 'selected' : ''}>${b.nickname || b.name || 'Business Profile'}</option>`).join('');
+    bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === activeDraft.businessId ? 'selected' : ''}>${b.nickname}</option>`).join('');
 
     document.getElementById('inv-tax-rate').value = activeDraft.taxRate || '0.09';
     document.getElementById('inv-target-price').value = activeDraft.targetPrice || '';
@@ -415,14 +415,14 @@ function renderBusinesses() {
   state.businesses.slice(0, 2).forEach((biz, idx) => {
     const card = document.getElementById(`biz-card-${idx}`);
     card.innerHTML = `
-      <h3>${biz.nickname || biz.name || 'Business ' + (idx+1)}</h3>
+      <h3>${biz.nickname || 'Business ' + (idx+1)}</h3>
       <div class="form-group">
         <label>Nickname:</label>
-        <input type="text" value="${biz.nickname || ''}" onchange="updateBiz('${biz.id}', 'nickname', this.value)">
+        <input type="text" value="${biz.nickname}" onchange="updateBiz('${biz.id}', 'nickname', this.value)">
       </div>
       <div class="form-group">
         <label>Company Name:</label>
-        <input type="text" value="${biz.name || ''}" onchange="updateBiz('${biz.id}', 'name', this.value)">
+        <input type="text" value="${biz.name}" onchange="updateBiz('${biz.id}', 'name', this.value)">
       </div>
       <div class="form-group">
         <label>Address & Details:</label>
@@ -505,10 +505,68 @@ function renderCustomers() {
           <strong>${c.name}</strong>
           <pre style="margin:4px 0 0 0; font-family: inherit; color: #475569;">${c.details || ''}</pre>
         </div>
-        <button class="secondary" style="font-size: 0.75rem; padding: 4px 8px;" onclick="editCustomer('${c.id}')">Edit</button>
+        <div style="display: flex; gap: 4px;">
+          <button class="secondary" style="font-size: 0.75rem; padding: 4px 8px;" onclick="editCustomer('${c.id}')">Edit</button>
+          <button class="danger" style="font-size: 0.75rem; padding: 4px 8px;" onclick="deleteCustomer('${c.id}')">Delete</button>
+        </div>
       </div>
     </li>
   `).join('');
+}
+
+async function deleteCustomer(custId) {
+  const cust = state.customers.find(c => c.id === custId);
+  const custName = cust ? cust.name : 'this customer';
+
+  if (!confirm(`Are you sure you want to delete "${custName}"?\n\nWARNING: All associated invoices and generated PDF files will also be permanently deleted.`)) {
+    return;
+  }
+
+  try {
+    // 1. Fetch all associated invoices
+    const { data: assocInvoices, error: fetchErr } = await db
+      .from('invoices')
+      .select('id, pdf_url')
+      .eq('customer_id', custId);
+
+    if (fetchErr) throw fetchErr;
+
+    // 2. Extract and delete PDF files from storage
+    if (assocInvoices && assocInvoices.length > 0) {
+      const pdfPaths = assocInvoices
+        .map(inv => extractPdfStoragePath(inv.pdf_url))
+        .filter(path => path !== null);
+
+      if (pdfPaths.length > 0) {
+        const { error: storageErr } = await db.storage
+          .from('invoice-pdfs')
+          .remove(pdfPaths);
+        if (storageErr) console.warn("Notice during PDF storage deletion:", storageErr.message);
+      }
+
+      // 3. Delete associated invoices from DB
+      const { error: invDeleteErr } = await db
+        .from('invoices')
+        .delete()
+        .eq('customer_id', custId);
+
+      if (invDeleteErr) throw invDeleteErr;
+    }
+
+    // 4. Delete the customer record
+    const { error: custDeleteErr } = await db
+      .from('customers')
+      .delete()
+      .eq('id', custId);
+
+    if (custDeleteErr) throw custDeleteErr;
+
+    await fetchAllData();
+    renderCustomers();
+    if (currentView === 'main') renderInvoices();
+  } catch (err) {
+    alert("Error deleting customer: " + err.message);
+  }
 }
 
 // INVOICE CREATION & EDITING
@@ -524,7 +582,7 @@ function openCreateInvoice() {
   
   const defaultBiz = state.businesses.find(b => b.is_default) || state.businesses[0];
   const bSel = document.getElementById('inv-biz-select');
-  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === defaultBiz?.id ? 'selected' : ''}>${b.nickname || b.name || 'Business Profile'}</option>`).join('');
+  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === defaultBiz?.id ? 'selected' : ''}>${b.nickname}</option>`).join('');
 
   document.getElementById('inv-target-price').value = '';
   renderLineItems();
@@ -544,7 +602,7 @@ function editDraftInvoice(id) {
   cSel.innerHTML = state.customers.map(c => `<option value="${c.id}" ${c.id === inv.customer_id ? 'selected' : ''}>${c.name}</option>`).join('');
   
   const bSel = document.getElementById('inv-biz-select');
-  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === inv.business_id ? 'selected' : ''}>${b.nickname || b.name || 'Business Profile'}</option>`).join('');
+  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === inv.business_id ? 'selected' : ''}>${b.nickname}</option>`).join('');
 
   document.getElementById('inv-tax-rate').value = inv.tax_rate;
   document.getElementById('inv-target-price').value = inv.target_final_price || '';
@@ -768,6 +826,17 @@ function openPdf(pdfUrl) {
   window.open(pdfUrl, '_blank');
 }
 
+// HELPER TO EXTRACT RELATIVE STORAGE PATH FROM PUBLIC BUCKET URL
+function extractPdfStoragePath(pdfUrl) {
+  if (!pdfUrl) return null;
+  const marker = '/object/public/invoice-pdfs/';
+  const idx = pdfUrl.indexOf(marker);
+  if (idx !== -1) {
+    return pdfUrl.substring(idx + marker.length);
+  }
+  return null;
+}
+
 // MULTI-COLUMN HEADER SORTING
 function handleSortClick(colKey, event) {
   const isShiftPressed = event.shiftKey;
@@ -864,7 +933,7 @@ function renderInvoices() {
         <td>
           ${inv.status === 'draft' ? 
             `<button class="secondary" onclick="editDraftInvoice('${inv.id}')">Edit</button> <button class="danger" onclick="deleteInvoice('${inv.id}')">Delete</button>` : 
-            `<button onclick="openPdf('${inv.pdf_url}')">PDF</button>`}
+            `<button onclick="openPdf('${inv.pdf_url}')">PDF</button> <button class="danger" onclick="deleteInvoice('${inv.id}')">Delete</button>`}
         </td>
       </tr>
     `;
@@ -872,10 +941,35 @@ function renderInvoices() {
 }
 
 async function deleteInvoice(id) {
-  if (confirm("Delete this draft?")) {
-    await db.from('invoices').delete().eq('id', id);
+  const inv = state.invoices.find(i => i.id === id);
+  if (!inv) return;
+
+  const msg = inv.status === 'completed' 
+    ? "Are you sure you want to delete this completed invoice? The associated PDF file will also be deleted."
+    : "Are you sure you want to delete this draft?";
+
+  if (!confirm(msg)) return;
+
+  try {
+    // If it's a completed invoice with a PDF, remove the file from storage first
+    if (inv.pdf_url) {
+      const filePath = extractPdfStoragePath(inv.pdf_url);
+      if (filePath) {
+        const { error: storageErr } = await db.storage
+          .from('invoice-pdfs')
+          .remove([filePath]);
+        if (storageErr) console.warn("Notice during PDF deletion:", storageErr.message);
+      }
+    }
+
+    // Delete row from database
+    const { error: dbErr } = await db.from('invoices').delete().eq('id', id);
+    if (dbErr) throw dbErr;
+
     await fetchAllData();
     renderInvoices();
+  } catch (err) {
+    alert("Error deleting invoice: " + err.message);
   }
 }
 </script>
