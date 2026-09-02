@@ -173,11 +173,11 @@
       <div class="grid-2">
         <div class="form-group">
           <label>Select Customer:</label>
-          <select id="inv-customer-select"></select>
+          <select id="inv-customer-select" onchange="persistActiveForm()"></select>
         </div>
         <div class="form-group">
           <label>Select Business Profile:</label>
-          <select id="inv-biz-select"></select>
+          <select id="inv-biz-select" onchange="persistActiveForm()"></select>
         </div>
       </div>
 
@@ -188,13 +188,13 @@
       <div style="margin-top: 20px;" class="grid-2">
         <div class="form-group">
           <label>Tax Rate:</label>
-          <select id="inv-tax-rate" onchange="calculateTotals()">
+          <select id="inv-tax-rate" onchange="calculateTotals(); persistActiveForm();">
             <option value="0.09">9%</option>
           </select>
         </div>
         <div class="form-group">
           <label>Target Final Price (€) [Auto-Calculates Discount]:</label>
-          <input type="number" step="0.01" id="inv-target-price" oninput="calculateTotals()">
+          <input type="number" step="0.01" id="inv-target-price" oninput="calculateTotals(); persistActiveForm();">
         </div>
       </div>
 
@@ -209,7 +209,7 @@
         <button onclick="saveInvoiceDraft()">Save Draft</button>
         <button type="button" onclick="previewInvoicePDF()" class="secondary">Preview PDF</button>
         <button onclick="completeInvoicePrompt()" style="background: #10b981;" id="btn-complete">Complete Invoice</button>
-        <button onclick="showView('main')" class="secondary">Cancel</button>
+        <button onclick="cancelInvoiceEdit()" class="secondary">Cancel</button>
       </div>
     </div>
   </div>
@@ -223,6 +223,7 @@
 const SUPABASE_URL = 'https://mbqimdrnhkosfddbqakc.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1icWltZHJuaGtvc2ZkZGJxYWtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzMDgxOTYsImV4cCI6MjEwMzg4NDE5Nn0.lDcgD0KGK7xB7cNaVwGDYsXDOHP2YsQD7w57XUViu4M';
 const FAKE_DOMAIN = '@rafaskis.andersen';
+const LOCAL_STORAGE_DRAFT_KEY = 'invoice_editor_active_draft';
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -318,7 +319,11 @@ async function initAppData() {
     ]);
     await fetchAllData();
   }
-  showView('main');
+
+  // Restore unsaved work if browser tab refreshes/focuses back
+  if (!restorePersistedForm()) {
+    showView('main');
+  }
 }
 
 async function fetchAllData() {
@@ -347,6 +352,62 @@ function showView(viewId) {
   if(viewId === 'main') renderInvoices();
   if(viewId === 'businesses') renderBusinesses();
   if(viewId === 'customers') renderCustomers();
+}
+
+// PERSISTENCE HANDLERS FOR UNAPPROVED DRAFTS
+function persistActiveForm() {
+  if (currentView !== 'create-invoice') return;
+
+  const activeDraft = {
+    editingId: document.getElementById('editing-invoice-id').value,
+    customerId: document.getElementById('inv-customer-select').value,
+    businessId: document.getElementById('inv-biz-select').value,
+    taxRate: document.getElementById('inv-tax-rate').value,
+    targetPrice: document.getElementById('inv-target-price').value,
+    lineItems: currentLineItems,
+    timestamp: Date.now()
+  };
+
+  localStorage.setItem(LOCAL_STORAGE_DRAFT_KEY, JSON.stringify(activeDraft));
+}
+
+function restorePersistedForm() {
+  const saved = localStorage.getItem(LOCAL_STORAGE_DRAFT_KEY);
+  if (!saved) return false;
+
+  try {
+    const activeDraft = JSON.parse(saved);
+    if (!activeDraft || !activeDraft.lineItems) return false;
+
+    document.getElementById('editing-invoice-id').value = activeDraft.editingId || '';
+    document.getElementById('invoice-form-title').innerText = activeDraft.editingId ? "Edit Invoice Draft" : "Create Invoice";
+
+    const cSel = document.getElementById('inv-customer-select');
+    cSel.innerHTML = state.customers.map(c => `<option value="${c.id}" ${c.id === activeDraft.customerId ? 'selected' : ''}>${c.name}</option>`).join('');
+
+    const bSel = document.getElementById('inv-biz-select');
+    bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === activeDraft.businessId ? 'selected' : ''}>${b.nickname}</option>`).join('');
+
+    document.getElementById('inv-tax-rate').value = activeDraft.taxRate || '0.09';
+    document.getElementById('inv-target-price').value = activeDraft.targetPrice || '';
+
+    currentLineItems = activeDraft.lineItems;
+    renderLineItems();
+    showView('create-invoice');
+    return true;
+  } catch (err) {
+    localStorage.removeItem(LOCAL_STORAGE_DRAFT_KEY);
+    return false;
+  }
+}
+
+function clearPersistedForm() {
+  localStorage.removeItem(LOCAL_STORAGE_DRAFT_KEY);
+}
+
+function cancelInvoiceEdit() {
+  clearPersistedForm();
+  showView('main');
 }
 
 // BUSINESS PROFILES
@@ -453,6 +514,7 @@ function renderCustomers() {
 // INVOICE CREATION & EDITING
 function openCreateInvoice() {
   if (state.customers.length === 0) return alert('Please create a customer first.');
+  clearPersistedForm();
   document.getElementById('invoice-form-title').innerText = "Create Invoice";
   document.getElementById('editing-invoice-id').value = "";
   currentLineItems = [{ description: '', price: 0 }];
@@ -466,6 +528,7 @@ function openCreateInvoice() {
 
   document.getElementById('inv-target-price').value = '';
   renderLineItems();
+  persistActiveForm();
   showView('create-invoice');
 }
 
@@ -473,6 +536,7 @@ function editDraftInvoice(id) {
   const inv = state.invoices.find(i => i.id === id);
   if (!inv || inv.status === 'completed') return alert('Completed invoices cannot be edited.');
 
+  clearPersistedForm();
   document.getElementById('invoice-form-title').innerText = "Edit Invoice Draft";
   document.getElementById('editing-invoice-id').value = inv.id;
 
@@ -487,6 +551,7 @@ function editDraftInvoice(id) {
 
   currentLineItems = inv.items || [];
   renderLineItems();
+  persistActiveForm();
   showView('create-invoice');
 }
 
@@ -505,16 +570,19 @@ function renderLineItems() {
 function addLineItem() {
   currentLineItems.push({ description: '', price: 0 });
   renderLineItems();
+  persistActiveForm();
 }
 
 function removeLineItem(index) {
   currentLineItems.splice(index, 1);
   renderLineItems();
+  persistActiveForm();
 }
 
 function updateLineItem(index, field, value) {
   currentLineItems[index][field] = value;
   calculateTotals();
+  persistActiveForm();
 }
 
 function calculateTotals() {
@@ -552,6 +620,7 @@ async function saveInvoiceDraft() {
     await db.from('invoices').insert([payload]);
   }
 
+  clearPersistedForm();
   await fetchAllData();
   showView('main');
 }
@@ -600,6 +669,7 @@ async function completeInvoicePrompt() {
       await db.from('invoices').insert([payload]);
     }
 
+    clearPersistedForm();
     await fetchAllData();
     showView('main');
   } catch (err) {
