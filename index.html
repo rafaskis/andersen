@@ -320,7 +320,6 @@ async function initAppData() {
     await fetchAllData();
   }
 
-  // Restore unsaved work if browser tab refreshes/focuses back
   if (!restorePersistedForm()) {
     showView('main');
   }
@@ -523,7 +522,6 @@ async function deleteCustomer(custId) {
   }
 
   try {
-    // 1. Fetch all associated invoices
     const { data: assocInvoices, error: fetchErr } = await db
       .from('invoices')
       .select('id, pdf_url')
@@ -531,7 +529,6 @@ async function deleteCustomer(custId) {
 
     if (fetchErr) throw fetchErr;
 
-    // 2. Extract and delete PDF files from storage
     if (assocInvoices && assocInvoices.length > 0) {
       const pdfPaths = assocInvoices
         .map(inv => extractPdfStoragePath(inv.pdf_url))
@@ -541,10 +538,9 @@ async function deleteCustomer(custId) {
         const { error: storageErr } = await db.storage
           .from('invoice-pdfs')
           .remove(pdfPaths);
-        if (storageErr) console.warn("Notice during PDF storage deletion:", storageErr.message);
+        if (storageErr) console.error("Error removing PDFs from storage:", storageErr);
       }
 
-      // 3. Delete associated invoices from DB
       const { error: invDeleteErr } = await db
         .from('invoices')
         .delete()
@@ -553,7 +549,6 @@ async function deleteCustomer(custId) {
       if (invDeleteErr) throw invDeleteErr;
     }
 
-    // 4. Delete the customer record
     const { error: custDeleteErr } = await db
       .from('customers')
       .delete()
@@ -826,13 +821,22 @@ function openPdf(pdfUrl) {
   window.open(pdfUrl, '_blank');
 }
 
-// HELPER TO EXTRACT RELATIVE STORAGE PATH FROM PUBLIC BUCKET URL
+// ROBUST PATH EXTRACTION FROM PUBLIC URL
 function extractPdfStoragePath(pdfUrl) {
   if (!pdfUrl) return null;
-  const marker = '/object/public/invoice-pdfs/';
-  const idx = pdfUrl.indexOf(marker);
-  if (idx !== -1) {
-    return pdfUrl.substring(idx + marker.length);
+  try {
+    const urlObj = new URL(pdfUrl);
+    const bucketToken = '/invoice-pdfs/';
+    const idx = urlObj.pathname.indexOf(bucketToken);
+    if (idx !== -1) {
+      return decodeURIComponent(urlObj.pathname.substring(idx + bucketToken.length));
+    }
+  } catch (e) {
+    const bucketToken = 'invoice-pdfs/';
+    const idx = pdfUrl.indexOf(bucketToken);
+    if (idx !== -1) {
+      return decodeURIComponent(pdfUrl.substring(idx + bucketToken.length));
+    }
   }
   return null;
 }
@@ -951,18 +955,16 @@ async function deleteInvoice(id) {
   if (!confirm(msg)) return;
 
   try {
-    // If it's a completed invoice with a PDF, remove the file from storage first
     if (inv.pdf_url) {
       const filePath = extractPdfStoragePath(inv.pdf_url);
       if (filePath) {
         const { error: storageErr } = await db.storage
           .from('invoice-pdfs')
           .remove([filePath]);
-        if (storageErr) console.warn("Notice during PDF deletion:", storageErr.message);
+        if (storageErr) console.error("Error removing PDF from storage:", storageErr);
       }
     }
 
-    // Delete row from database
     const { error: dbErr } = await db.from('invoices').delete().eq('id', id);
     if (dbErr) throw dbErr;
 
