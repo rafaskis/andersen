@@ -48,7 +48,7 @@
 
   <!-- AUTH SECTION -->
   <div id="view-auth">
-    <h2>Login / Sign Up</h2>
+    <h2>Login</h2>
     <div class="card" style="max-width: 400px; margin: 0 auto;">
       <div class="form-group">
         <label>Username:</label>
@@ -58,10 +58,7 @@
         <label>Password:</label>
         <input type="password" id="auth-password" placeholder="••••••••">
       </div>
-      <div style="display: flex; gap: 8px;">
-        <button onclick="handleLogin()">Login</button>
-        <button onclick="handleSignUp()" class="secondary">Sign Up</button>
-      </div>
+      <button onclick="handleLogin()" style="width: 100%;">Login</button>
     </div>
   </div>
 
@@ -86,12 +83,27 @@
         <h2>Invoices</h2>
         <button onclick="openCreateInvoice()">+ Create Invoice</button>
       </div>
-      <div class="form-group" style="max-width: 300px;">
-        <label>Filter by Customer:</label>
-        <select id="filter-customer" onchange="renderInvoices()">
-          <option value="">All Customers</option>
-        </select>
+      
+      <div class="grid-2" style="margin-bottom: 16px;">
+        <div class="form-group">
+          <label>Filter by Customer:</label>
+          <select id="filter-customer" onchange="renderInvoices()">
+            <option value="">All Customers</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sort By:</label>
+          <select id="sort-invoices" onchange="renderInvoices()">
+            <option value="created_desc">Created At (Newest First)</option>
+            <option value="created_asc">Created At (Oldest First)</option>
+            <option value="completed_desc">Completed At (Newest First)</option>
+            <option value="completed_asc">Completed At (Oldest First)</option>
+            <option value="customer_asc">Customer Name (A-Z)</option>
+            <option value="customer_desc">Customer Name (Z-A)</option>
+          </select>
+        </div>
       </div>
+
       <table>
         <thead>
           <tr>
@@ -136,7 +148,8 @@
     <div id="view-customers" class="hidden">
       <h2>Customers</h2>
       <div class="card">
-        <h3>Add New Customer</h3>
+        <h3 id="cust-form-title">Add New Customer</h3>
+        <input type="hidden" id="editing-cust-id" value="">
         <div class="form-group">
           <label>Customer/Business Name:</label>
           <input type="text" id="cust-name">
@@ -145,9 +158,15 @@
           <label>Customer Details (Multi-line):</label>
           <textarea id="cust-details" rows="3"></textarea>
         </div>
-        <button onclick="saveCustomer()">Save Customer</button>
+        <div style="display: flex; gap: 8px;">
+          <button onclick="saveCustomer()" id="btn-save-cust">Save Customer</button>
+          <button onclick="cancelCustomerEdit()" class="secondary hidden" id="btn-cancel-cust">Cancel Edit</button>
+        </div>
       </div>
-      <ul id="customer-list-ul"></ul>
+      <div class="card">
+        <h3>Existing Customers</h3>
+        <ul id="customer-list-ul" style="padding-left: 16px;"></ul>
+      </div>
     </div>
 
     <!-- VIEW: CREATE/EDIT INVOICE -->
@@ -190,8 +209,9 @@
         <div style="font-size: 1.2rem; margin-top: 8px;">Total Payable: <strong id="lbl-total">€0.00</strong></div>
       </div>
 
-      <div style="margin-top: 20px; display: flex; gap: 8px;">
+      <div style="margin-top: 20px; display: flex; gap: 8px; flex-wrap: wrap;">
         <button onclick="saveInvoiceDraft()">Save Draft</button>
+        <button onclick="previewInvoicePDF()" class="secondary">Preview PDF</button>
         <button onclick="completeInvoicePrompt()" style="background: #10b981;" id="btn-complete">Complete Invoice</button>
         <button onclick="showView('main')" class="secondary">Cancel</button>
       </div>
@@ -216,13 +236,11 @@ let currentView = 'main';
 let state = { businesses: [], customers: [], invoices: [] };
 let currentLineItems = [];
 
-// HELPER: Convert Username to Fake Email
 function formatEmail(username) {
   const cleanUser = username.trim().toLowerCase();
   return cleanUser.includes('@') ? cleanUser : `${cleanUser}${FAKE_DOMAIN}`;
 }
 
-// INIT AUTH LISTENER
 db.auth.onAuthStateChange(async (event, session) => {
   if (session) {
     currentUser = session.user;
@@ -240,7 +258,6 @@ db.auth.onAuthStateChange(async (event, session) => {
   }
 });
 
-// REALTIME MULTI-DEVICE SYNC
 function setupRealtimeSubscriptions() {
   if (realtimeChannel) db.removeChannel(realtimeChannel);
 
@@ -261,7 +278,6 @@ function setupRealtimeSubscriptions() {
     .subscribe();
 }
 
-// AUTH HANDLERS
 async function handleLogin() {
   const rawInput = document.getElementById('auth-username').value;
   const password = document.getElementById('auth-password').value;
@@ -270,17 +286,6 @@ async function handleLogin() {
   const email = formatEmail(rawInput);
   const { error } = await db.auth.signInWithPassword({ email, password });
   if (error) alert(error.message);
-}
-
-async function handleSignUp() {
-  const rawInput = document.getElementById('auth-username').value;
-  const password = document.getElementById('auth-password').value;
-  if (!rawInput || !password) return alert('Username and password are required');
-
-  const email = formatEmail(rawInput);
-  const { error } = await db.auth.signUp({ email, password });
-  if (error) alert(error.message);
-  else alert('Account created! You can now log in using your username.');
 }
 
 async function handlePasswordChange() {
@@ -305,7 +310,6 @@ async function handleLogout() {
   await db.auth.signOut();
 }
 
-// APP DATA INITIALIZATION
 async function initAppData() {
   await fetchAllData();
   
@@ -394,22 +398,58 @@ async function handleLogoUpload(e, bizId) {
 
 // CUSTOMERS
 async function saveCustomer() {
+  const editId = document.getElementById('editing-cust-id').value;
   const name = document.getElementById('cust-name').value;
   const details = document.getElementById('cust-details').value;
   if (!name) return alert('Name required');
   
-  const { error } = await db.from('customers').insert([{ user_id: currentUser.id, name, details }]);
-  if (error) return alert("Error saving customer: " + error.message);
+  if (editId) {
+    const { error } = await db.from('customers').update({ name, details }).eq('id', editId);
+    if (error) return alert("Error updating customer: " + error.message);
+  } else {
+    const { error } = await db.from('customers').insert([{ user_id: currentUser.id, name, details }]);
+    if (error) return alert("Error saving customer: " + error.message);
+  }
 
-  document.getElementById('cust-name').value = '';
-  document.getElementById('cust-details').value = '';
+  cancelCustomerEdit();
   await fetchAllData();
   renderCustomers();
 }
 
+function editCustomer(id) {
+  const cust = state.customers.find(c => c.id === id);
+  if (!cust) return;
+
+  document.getElementById('editing-cust-id').value = cust.id;
+  document.getElementById('cust-name').value = cust.name;
+  document.getElementById('cust-details').value = cust.details || '';
+  document.getElementById('cust-form-title').innerText = "Edit Customer";
+  document.getElementById('btn-save-cust').innerText = "Update Customer";
+  document.getElementById('btn-cancel-cust').classList.remove('hidden');
+}
+
+function cancelCustomerEdit() {
+  document.getElementById('editing-cust-id').value = '';
+  document.getElementById('cust-name').value = '';
+  document.getElementById('cust-details').value = '';
+  document.getElementById('cust-form-title').innerText = "Add New Customer";
+  document.getElementById('btn-save-cust').innerText = "Save Customer";
+  document.getElementById('btn-cancel-cust').classList.add('hidden');
+}
+
 function renderCustomers() {
   const ul = document.getElementById('customer-list-ul');
-  ul.innerHTML = state.customers.map(c => `<li><strong>${c.name}</strong> - <pre style="margin:0">${c.details || ''}</pre></li>`).join('');
+  ul.innerHTML = state.customers.map(c => `
+    <li style="margin-bottom: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <strong>${c.name}</strong>
+          <pre style="margin:4px 0 0 0; font-family: inherit; color: #475569;">${c.details || ''}</pre>
+        </div>
+        <button class="secondary" style="font-size: 0.75rem; padding: 4px 8px;" onclick="editCustomer('${c.id}')">Edit</button>
+      </div>
+    </li>
+  `).join('');
 }
 
 // INVOICE CREATION & EDITING
@@ -422,8 +462,9 @@ function openCreateInvoice() {
   const cSel = document.getElementById('inv-customer-select');
   cSel.innerHTML = state.customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
   
+  const defaultBiz = state.businesses.find(b => b.is_default) || state.businesses[0];
   const bSel = document.getElementById('inv-biz-select');
-  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}">${b.nickname}</option>`).join('');
+  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === defaultBiz?.id ? 'selected' : ''}>${b.nickname}</option>`).join('');
 
   document.getElementById('inv-target-price').value = '';
   renderLineItems();
@@ -515,6 +556,14 @@ async function saveInvoiceDraft() {
 
   await fetchAllData();
   showView('main');
+}
+
+async function previewInvoicePDF() {
+  const editId = document.getElementById('editing-invoice-id').value;
+  const payload = buildInvoicePayload('draft', editId);
+  const pdfBlob = await generatePDFBlob(payload);
+  const blobUrl = URL.createObjectURL(pdfBlob);
+  window.open(blobUrl, '_blank');
 }
 
 async function completeInvoicePrompt() {
@@ -630,15 +679,31 @@ function openPdf(pdfUrl) {
   window.open(pdfUrl, '_blank');
 }
 
+// SORT & RENDER INVOICES
 function renderInvoices() {
   const filterCustId = document.getElementById('filter-customer').value;
+  const sortOption = document.getElementById('sort-invoices').value;
+
   const cSel = document.getElementById('filter-customer');
-  
   cSel.innerHTML = '<option value="">All Customers</option>' + 
     state.customers.map(c => `<option value="${c.id}" ${c.id === filterCustId ? 'selected' : ''}>${c.name}</option>`).join('');
 
   let filtered = [...state.invoices];
   if (filterCustId) filtered = filtered.filter(i => i.customer_id === filterCustId);
+
+  // Sorting Logic
+  filtered.sort((a, b) => {
+    const custA = state.customers.find(c => c.id === a.customer_id)?.name.toLowerCase() || '';
+    const custB = state.customers.find(c => c.id === b.customer_id)?.name.toLowerCase() || '';
+
+    if (sortOption === 'created_desc') return new Date(b.created_at) - new Date(a.created_at);
+    if (sortOption === 'created_asc') return new Date(a.created_at) - new Date(b.created_at);
+    if (sortOption === 'completed_desc') return new Date(b.completed_at || 0) - new Date(a.completed_at || 0);
+    if (sortOption === 'completed_asc') return new Date(a.completed_at || 0) - new Date(b.completed_at || 0);
+    if (sortOption === 'customer_asc') return custA.localeCompare(custB);
+    if (sortOption === 'customer_desc') return custB.localeCompare(custA);
+    return 0;
+  });
 
   const tbody = document.getElementById('invoice-list-body');
   tbody.innerHTML = filtered.map(inv => {
