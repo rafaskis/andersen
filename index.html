@@ -353,7 +353,6 @@ function showView(viewId) {
   if(viewId === 'customers') renderCustomers();
 }
 
-// PERSISTENCE HANDLERS FOR UNAPPROVED DRAFTS
 function persistActiveForm() {
   if (currentView !== 'create-invoice') return;
 
@@ -535,10 +534,13 @@ async function deleteCustomer(custId) {
         .filter(path => path !== null);
 
       if (pdfPaths.length > 0) {
-        const { error: storageErr } = await db.storage
+        const { data: removeData, error: storageErr } = await db.storage
           .from('invoice-pdfs')
           .remove(pdfPaths);
-        if (storageErr) console.error("Error removing PDFs from storage:", storageErr);
+
+        if (storageErr) {
+          alert("Storage Deletion Error: " + storageErr.message + "\nCheck Supabase Storage DELETE RLS policies.");
+        }
       }
 
       const { error: invDeleteErr } = await db
@@ -821,21 +823,16 @@ function openPdf(pdfUrl) {
   window.open(pdfUrl, '_blank');
 }
 
-// ROBUST PATH EXTRACTION FROM PUBLIC URL
+// RELIABLE PATH EXTRACTION
 function extractPdfStoragePath(pdfUrl) {
   if (!pdfUrl) return null;
-  try {
-    const urlObj = new URL(pdfUrl);
-    const bucketToken = '/invoice-pdfs/';
-    const idx = urlObj.pathname.indexOf(bucketToken);
-    if (idx !== -1) {
-      return decodeURIComponent(urlObj.pathname.substring(idx + bucketToken.length));
-    }
-  } catch (e) {
-    const bucketToken = 'invoice-pdfs/';
-    const idx = pdfUrl.indexOf(bucketToken);
-    if (idx !== -1) {
-      return decodeURIComponent(pdfUrl.substring(idx + bucketToken.length));
+  const bucketName = 'invoice-pdfs';
+  
+  if (pdfUrl.includes(bucketName)) {
+    const parts = pdfUrl.split(`${bucketName}/`);
+    if (parts.length > 1) {
+      // Return relative path: {user_id}/{filename}.pdf
+      return decodeURIComponent(parts[1].split('?')[0]);
     }
   }
   return null;
@@ -958,10 +955,13 @@ async function deleteInvoice(id) {
     if (inv.pdf_url) {
       const filePath = extractPdfStoragePath(inv.pdf_url);
       if (filePath) {
-        const { error: storageErr } = await db.storage
+        const { data: storageData, error: storageErr } = await db.storage
           .from('invoice-pdfs')
           .remove([filePath]);
-        if (storageErr) console.error("Error removing PDF from storage:", storageErr);
+
+        if (storageErr) {
+          alert("Storage Deletion Error: " + storageErr.message + "\nPlease make sure you have created a DELETE policy for storage in Supabase.");
+        }
       }
     }
 
