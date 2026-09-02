@@ -13,7 +13,8 @@
     body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: var(--gray-bg); color: #0f172a; }
     .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     h1, h2, h3 { margin-top: 0; }
-    .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .nav-tabs { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .nav-btns { display: flex; gap: 8px; }
     button { background: var(--primary); color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
     button.secondary { background: #64748b; }
     button.danger { background: #ef4444; }
@@ -28,7 +29,7 @@
     .line-item input[type="text"] { flex: 2; }
     .line-item input[type="number"] { flex: 1; }
     .totals-area { background: #f1f5f9; padding: 12px; border-radius: 6px; margin-top: 16px; text-align: right; }
-    .hidden { display: none; }
+    .hidden { display: none !important; }
     .preview-logo { max-height: 40px; margin-top: 4px; display: block; }
 
     #pdf-template { width: 700px; padding: 30px; background: #ffffff; color: #1e293b; font-family: Arial, sans-serif; }
@@ -44,109 +45,156 @@
 <body>
 
 <div class="container">
-  <div class="nav-tabs">
-    <button onclick="showView('main')">Invoices</button>
-    <button onclick="showView('customers')" class="secondary">Manage Customers</button>
-    <button onclick="showView('businesses')" class="secondary">Business Profiles</button>
-  </div>
 
-  <!-- VIEW: MAIN (INVOICE LIST) -->
-  <div id="view-main">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-      <h2>Invoices</h2>
-      <button onclick="openCreateInvoice()">+ Create Invoice</button>
-    </div>
-    <div class="form-group" style="max-width: 300px;">
-      <label>Filter by Customer:</label>
-      <select id="filter-customer" onchange="renderInvoices()">
-        <option value="">All Customers</option>
-      </select>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Customer</th>
-          <th>Created At</th>
-          <th>Completed At</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="invoice-list-body"></tbody>
-    </table>
-  </div>
-
-  <!-- VIEW: BUSINESS PROFILES -->
-  <div id="view-businesses" class="hidden">
-    <h2>Business Profiles</h2>
-    <div class="grid-2">
-      <div class="card" id="biz-card-0"></div>
-      <div class="card" id="biz-card-1"></div>
+  <!-- AUTH SECTION -->
+  <div id="view-auth">
+    <h2>Login / Sign Up</h2>
+    <div class="card" style="max-width: 400px; margin: 0 auto;">
+      <div class="form-group">
+        <label>Username:</label>
+        <input type="text" id="auth-username" placeholder="admin">
+      </div>
+      <div class="form-group">
+        <label>Password:</label>
+        <input type="password" id="auth-password" placeholder="••••••••">
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button onclick="handleLogin()">Login</button>
+        <button onclick="handleSignUp()" class="secondary">Sign Up</button>
+      </div>
     </div>
   </div>
 
-  <!-- VIEW: CUSTOMERS -->
-  <div id="view-customers" class="hidden">
-    <h2>Customers</h2>
-    <div class="card">
-      <h3>Add New Customer</h3>
-      <div class="form-group">
-        <label>Customer/Business Name:</label>
-        <input type="text" id="cust-name">
+  <!-- MAIN APP CONTAINER -->
+  <div id="view-app" class="hidden">
+    <div class="nav-tabs">
+      <div class="nav-btns">
+        <button onclick="showView('main')">Invoices</button>
+        <button onclick="showView('customers')" class="secondary">Manage Customers</button>
+        <button onclick="showView('businesses')" class="secondary">Business Profiles</button>
+        <button onclick="showView('account')" class="secondary">Account Settings</button>
       </div>
-      <div class="form-group">
-        <label>Customer Details (Multi-line):</label>
-        <textarea id="cust-details" rows="3"></textarea>
-      </div>
-      <button onclick="saveCustomer()">Save Customer</button>
-    </div>
-    <ul id="customer-list-ul"></ul>
-  </div>
-
-  <!-- VIEW: CREATE/EDIT INVOICE -->
-  <div id="view-create-invoice" class="hidden">
-    <h2 id="invoice-form-title">Create Invoice</h2>
-    <input type="hidden" id="editing-invoice-id" value="">
-    
-    <div class="grid-2">
-      <div class="form-group">
-        <label>Select Customer:</label>
-        <select id="inv-customer-select"></select>
-      </div>
-      <div class="form-group">
-        <label>Select Business Profile:</label>
-        <select id="inv-biz-select"></select>
+      <div>
+        <span id="user-display" style="font-size: 0.85rem; margin-right: 8px; font-weight: 600;"></span>
+        <button onclick="handleLogout()" class="danger" style="font-size: 0.8rem;">Logout</button>
       </div>
     </div>
 
-    <h3>Services / Items</h3>
-    <div id="line-items-container"></div>
-    <button type="button" onclick="addLineItem()" class="secondary" style="margin-top: 8px;">+ Add Service</button>
-
-    <div style="margin-top: 20px;" class="grid-2">
-      <div class="form-group">
-        <label>Tax Rate:</label>
-        <select id="inv-tax-rate" onchange="calculateTotals()">
-          <option value="0.09">9%</option>
+    <!-- VIEW: INVOICE LIST -->
+    <div id="view-main">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2>Invoices</h2>
+        <button onclick="openCreateInvoice()">+ Create Invoice</button>
+      </div>
+      <div class="form-group" style="max-width: 300px;">
+        <label>Filter by Customer:</label>
+        <select id="filter-customer" onchange="renderInvoices()">
+          <option value="">All Customers</option>
         </select>
       </div>
-      <div class="form-group">
-        <label>Target Final Price (€) [Auto-Calculates Discount]:</label>
-        <input type="number" step="0.01" id="inv-target-price" oninput="calculateTotals()">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Created At</th>
+            <th>Completed At</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="invoice-list-body"></tbody>
+      </table>
+    </div>
+
+    <!-- VIEW: ACCOUNT SETTINGS -->
+    <div id="view-account" class="hidden">
+      <h2>Account Settings</h2>
+      <div class="card" style="max-width: 400px;">
+        <h3>Change Password</h3>
+        <div class="form-group">
+          <label>New Password:</label>
+          <input type="password" id="new-password" placeholder="Enter new password">
+        </div>
+        <div class="form-group">
+          <label>Confirm New Password:</label>
+          <input type="password" id="confirm-password" placeholder="Confirm new password">
+        </div>
+        <button onclick="handlePasswordChange()">Update Password</button>
       </div>
     </div>
 
-    <div class="totals-area">
-      <div>Subtotal (Net): <strong id="lbl-subtotal">€0.00</strong></div>
-      <div>Calculated Tax: <strong id="lbl-tax">€0.00</strong></div>
-      <div>Calculated Discount: <strong id="lbl-discount">€0.00</strong></div>
-      <div style="font-size: 1.2rem; margin-top: 8px;">Total Payable: <strong id="lbl-total">€0.00</strong></div>
+    <!-- VIEW: BUSINESS PROFILES -->
+    <div id="view-businesses" class="hidden">
+      <h2>Business Profiles</h2>
+      <div class="grid-2">
+        <div class="card" id="biz-card-0"></div>
+        <div class="card" id="biz-card-1"></div>
+      </div>
     </div>
 
-    <div style="margin-top: 20px; display: flex; gap: 8px;">
-      <button onclick="saveInvoiceDraft()">Save Draft</button>
-      <button onclick="completeInvoicePrompt()" style="background: #10b981;" id="btn-complete">Complete Invoice</button>
-      <button onclick="showView('main')" class="secondary">Cancel</button>
+    <!-- VIEW: CUSTOMERS -->
+    <div id="view-customers" class="hidden">
+      <h2>Customers</h2>
+      <div class="card">
+        <h3>Add New Customer</h3>
+        <div class="form-group">
+          <label>Customer/Business Name:</label>
+          <input type="text" id="cust-name">
+        </div>
+        <div class="form-group">
+          <label>Customer Details (Multi-line):</label>
+          <textarea id="cust-details" rows="3"></textarea>
+        </div>
+        <button onclick="saveCustomer()">Save Customer</button>
+      </div>
+      <ul id="customer-list-ul"></ul>
+    </div>
+
+    <!-- VIEW: CREATE/EDIT INVOICE -->
+    <div id="view-create-invoice" class="hidden">
+      <h2 id="invoice-form-title">Create Invoice</h2>
+      <input type="hidden" id="editing-invoice-id" value="">
+      
+      <div class="grid-2">
+        <div class="form-group">
+          <label>Select Customer:</label>
+          <select id="inv-customer-select"></select>
+        </div>
+        <div class="form-group">
+          <label>Select Business Profile:</label>
+          <select id="inv-biz-select"></select>
+        </div>
+      </div>
+
+      <h3>Services / Items</h3>
+      <div id="line-items-container"></div>
+      <button type="button" onclick="addLineItem()" class="secondary" style="margin-top: 8px;">+ Add Service</button>
+
+      <div style="margin-top: 20px;" class="grid-2">
+        <div class="form-group">
+          <label>Tax Rate:</label>
+          <select id="inv-tax-rate" onchange="calculateTotals()">
+            <option value="0.09">9%</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Target Final Price (€) [Auto-Calculates Discount]:</label>
+          <input type="number" step="0.01" id="inv-target-price" oninput="calculateTotals()">
+        </div>
+      </div>
+
+      <div class="totals-area">
+        <div>Subtotal (Net): <strong id="lbl-subtotal">€0.00</strong></div>
+        <div>Calculated Tax: <strong id="lbl-tax">€0.00</strong></div>
+        <div>Calculated Discount: <strong id="lbl-discount">€0.00</strong></div>
+        <div style="font-size: 1.2rem; margin-top: 8px;">Total Payable: <strong id="lbl-total">€0.00</strong></div>
+      </div>
+
+      <div style="margin-top: 20px; display: flex; gap: 8px;">
+        <button onclick="saveInvoiceDraft()">Save Draft</button>
+        <button onclick="completeInvoicePrompt()" style="background: #10b981;" id="btn-complete">Complete Invoice</button>
+        <button onclick="showView('main')" class="secondary">Cancel</button>
+      </div>
     </div>
   </div>
 </div>
@@ -156,21 +204,115 @@
 </div>
 
 <script>
-
-const SUPABASE_URL = 'https://mbqimdrnhkosfddbqakc.supabase.co/rest/v1/';
+const SUPABASE_URL = 'https://mbqimdrnhkosfddbqakc.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1icWltZHJuaGtvc2ZkZGJxYWtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzMDgxOTYsImV4cCI6MjEwMzg4NDE5Nn0.lDcgD0KGK7xB7cNaVwGDYsXDOHP2YsQD7w57XUViu4M';
+const FAKE_DOMAIN = '@rafaskis.andersen';
+
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+let currentUser = null;
+let realtimeChannel = null;
+let currentView = 'main';
 let state = { businesses: [], customers: [], invoices: [] };
 let currentLineItems = [];
 
-async function init() {
+// HELPER: Convert Username to Fake Email
+function formatEmail(username) {
+  const cleanUser = username.trim().toLowerCase();
+  return cleanUser.includes('@') ? cleanUser : `${cleanUser}${FAKE_DOMAIN}`;
+}
+
+// INIT AUTH LISTENER
+db.auth.onAuthStateChange(async (event, session) => {
+  if (session) {
+    currentUser = session.user;
+    const username = currentUser.email.replace(FAKE_DOMAIN, '');
+    document.getElementById('user-display').innerText = username;
+    document.getElementById('view-auth').classList.add('hidden');
+    document.getElementById('view-app').classList.remove('hidden');
+    await initAppData();
+    setupRealtimeSubscriptions();
+  } else {
+    currentUser = null;
+    if (realtimeChannel) db.removeChannel(realtimeChannel);
+    document.getElementById('view-auth').classList.remove('hidden');
+    document.getElementById('view-app').classList.add('hidden');
+  }
+});
+
+// REALTIME MULTI-DEVICE SYNC
+function setupRealtimeSubscriptions() {
+  if (realtimeChannel) db.removeChannel(realtimeChannel);
+
+  realtimeChannel = db.channel('app-realtime-sync')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, async () => {
+      await fetchAllData();
+      if (currentView === 'main') renderInvoices();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, async () => {
+      await fetchAllData();
+      if (currentView === 'customers') renderCustomers();
+      if (currentView === 'main') renderInvoices();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'businesses' }, async () => {
+      await fetchAllData();
+      if (currentView === 'businesses') renderBusinesses();
+    })
+    .subscribe();
+}
+
+// AUTH HANDLERS
+async function handleLogin() {
+  const rawInput = document.getElementById('auth-username').value;
+  const password = document.getElementById('auth-password').value;
+  if (!rawInput || !password) return alert('Username and password are required');
+
+  const email = formatEmail(rawInput);
+  const { error } = await db.auth.signInWithPassword({ email, password });
+  if (error) alert(error.message);
+}
+
+async function handleSignUp() {
+  const rawInput = document.getElementById('auth-username').value;
+  const password = document.getElementById('auth-password').value;
+  if (!rawInput || !password) return alert('Username and password are required');
+
+  const email = formatEmail(rawInput);
+  const { error } = await db.auth.signUp({ email, password });
+  if (error) alert(error.message);
+  else alert('Account created! You can now log in using your username.');
+}
+
+async function handlePasswordChange() {
+  const newPassword = document.getElementById('new-password').value;
+  const confirmPassword = document.getElementById('confirm-password').value;
+
+  if (!newPassword || !confirmPassword) return alert('Please fill in both password fields.');
+  if (newPassword !== confirmPassword) return alert('Passwords do not match.');
+
+  const { error } = await db.auth.updateUser({ password: newPassword });
+  if (error) {
+    alert('Error updating password: ' + error.message);
+  } else {
+    alert('Password updated successfully!');
+    document.getElementById('new-password').value = '';
+    document.getElementById('confirm-password').value = '';
+    showView('main');
+  }
+}
+
+async function handleLogout() {
+  await db.auth.signOut();
+}
+
+// APP DATA INITIALIZATION
+async function initAppData() {
   await fetchAllData();
+  
   if (state.businesses.length === 0) {
-    // Seed 2 default profile slots if db is brand new
     await db.from('businesses').insert([
-      { nickname: 'Default Profile', name: 'My Main Company', address: 'Address 1', is_default: true },
-      { nickname: 'Secondary Profile', name: 'My Secondary Company', address: 'Address 2', is_default: false }
+      { user_id: currentUser.id, nickname: 'Default Profile', name: 'My Main Company', address: 'Address 1', is_default: true },
+      { user_id: currentUser.id, nickname: 'Secondary Profile', name: 'My Secondary Company', address: 'Address 2', is_default: false }
     ]);
     await fetchAllData();
   }
@@ -195,7 +337,8 @@ function formatDate(isoString) {
 }
 
 function showView(viewId) {
-  ['main', 'customers', 'businesses', 'create-invoice'].forEach(v => {
+  currentView = viewId;
+  ['main', 'customers', 'businesses', 'account', 'create-invoice'].forEach(v => {
     document.getElementById(`view-${v}`).classList.add('hidden');
   });
   document.getElementById(`view-${viewId}`).classList.remove('hidden');
@@ -239,7 +382,7 @@ async function updateBiz(id, key, value) {
 async function handleLogoUpload(e, bizId) {
   const file = e.target.files[0];
   if (!file) return;
-  const filePath = `logos/${bizId}_${Date.now()}`;
+  const filePath = `logos/${currentUser.id}/${bizId}_${Date.now()}`;
   const { data, error } = await db.storage.from('business-logos').upload(filePath, file);
   if (error) return alert("Upload failed: " + error.message);
   
@@ -254,7 +397,10 @@ async function saveCustomer() {
   const name = document.getElementById('cust-name').value;
   const details = document.getElementById('cust-details').value;
   if (!name) return alert('Name required');
-  await db.from('customers').insert([{ name, details }]);
+  
+  const { error } = await db.from('customers').insert([{ user_id: currentUser.id, name, details }]);
+  if (error) return alert("Error saving customer: " + error.message);
+
   document.getElementById('cust-name').value = '';
   document.getElementById('cust-details').value = '';
   await fetchAllData();
@@ -266,7 +412,7 @@ function renderCustomers() {
   ul.innerHTML = state.customers.map(c => `<li><strong>${c.name}</strong> - <pre style="margin:0">${c.details || ''}</pre></li>`).join('');
 }
 
-// INVOICES
+// INVOICE CREATION & EDITING
 function openCreateInvoice() {
   if (state.customers.length === 0) return alert('Please create a customer first.');
   document.getElementById('invoice-form-title').innerText = "Create Invoice";
@@ -382,9 +528,8 @@ async function completeInvoicePrompt() {
   const payload = buildInvoicePayload('completed', editId);
   payload.completed_at = new Date().toISOString();
 
-  // Render & Upload PDF to Supabase Storage
   const pdfBlob = await generatePDFBlob(payload);
-  const pdfFileName = `invoice_${Date.now()}.pdf`;
+  const pdfFileName = `${currentUser.id}/invoice_${Date.now()}.pdf`;
   
   const { data, error } = await db.storage.from('invoice-pdfs').upload(pdfFileName, pdfBlob, {
     contentType: 'application/pdf'
@@ -413,6 +558,7 @@ function buildInvoicePayload(status, existingId) {
   const existingInv = existingId ? state.invoices.find(i => i.id === existingId) : null;
 
   return {
+    user_id: currentUser.id,
     customer_id: selectedCust.id,
     business_id: selectedBiz.id,
     business_snapshot: existingInv?.business_snapshot || selectedBiz,
@@ -520,8 +666,6 @@ async function deleteInvoice(id) {
     renderInvoices();
   }
 }
-
-init();
 </script>
 </body>
 </html>
