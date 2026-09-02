@@ -25,6 +25,9 @@
     .card { background: var(--gray-bg); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border); }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; }
     th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
+    th.sortable { cursor: pointer; user-select: none; transition: background 0.15s ease; }
+    th.sortable:hover { background-color: #f1f5f9; }
+    .sort-indicator { font-size: 0.75rem; color: var(--primary); margin-left: 4px; font-weight: bold; }
     .line-item { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
     .line-item input[type="text"] { flex: 2; }
     .line-item input[type="number"] { flex: 1; }
@@ -84,32 +87,24 @@
         <button onclick="openCreateInvoice()">+ Create Invoice</button>
       </div>
       
-      <div class="grid-2" style="margin-bottom: 16px;">
-        <div class="form-group">
+      <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-end;">
+        <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
           <label>Filter by Customer:</label>
           <select id="filter-customer" onchange="renderInvoices()">
             <option value="">All Customers</option>
           </select>
         </div>
-        <div class="form-group">
-          <label>Sort By:</label>
-          <select id="sort-invoices" onchange="renderInvoices()">
-            <option value="created_desc">Created At (Newest First)</option>
-            <option value="created_asc">Created At (Oldest First)</option>
-            <option value="completed_desc">Completed At (Newest First)</option>
-            <option value="completed_asc">Completed At (Oldest First)</option>
-            <option value="customer_asc">Customer Name (A-Z)</option>
-            <option value="customer_desc">Customer Name (Z-A)</option>
-          </select>
-        </div>
+        <span style="font-size: 0.8rem; color: #64748b;">
+          💡 <em>Click headers to sort. Hold <strong>Shift</strong> while clicking to sort by multiple columns.</em>
+        </span>
       </div>
 
       <table>
         <thead>
           <tr>
-            <th>Customer</th>
-            <th>Created At</th>
-            <th>Completed At</th>
+            <th class="sortable" onclick="handleSortClick('customer', event)">Customer <span id="sort-icon-customer" class="sort-indicator"></span></th>
+            <th class="sortable" onclick="handleSortClick('created_at', event)">Created At <span id="sort-icon-created_at" class="sort-indicator"></span></th>
+            <th class="sortable" onclick="handleSortClick('completed_at', event)">Completed At <span id="sort-icon-completed_at" class="sort-indicator"></span></th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -235,6 +230,9 @@ let realtimeChannel = null;
 let currentView = 'main';
 let state = { businesses: [], customers: [], invoices: [] };
 let currentLineItems = [];
+
+// Multi-column Sort State: [{ column: 'customer', dir: 'asc' }]
+let sortRules = [{ column: 'created_at', dir: 'desc' }];
 
 function formatEmail(username) {
   const cleanUser = username.trim().toLowerCase();
@@ -679,10 +677,45 @@ function openPdf(pdfUrl) {
   window.open(pdfUrl, '_blank');
 }
 
-// SORT & RENDER INVOICES
+// MULTI-COLUMN HEADER SORTING
+function handleSortClick(colKey, event) {
+  const isShiftPressed = event.shiftKey;
+  const existingIdx = sortRules.findIndex(r => r.column === colKey);
+
+  if (isShiftPressed) {
+    // Multi-column mode: Append or cycle within sort chain
+    if (existingIdx > -1) {
+      if (sortRules[existingIdx].dir === 'asc') {
+        sortRules[existingIdx].dir = 'desc';
+      } else {
+        sortRules.splice(existingIdx, 1); // Cycle back to un-sorted for this column
+      }
+    } else {
+      sortRules.push({ column: colKey, dir: 'asc' });
+    }
+  } else {
+    // Single-column mode: Reset rules unless re-clicking primary sort column
+    if (existingIdx === 0) {
+      if (sortRules[0].dir === 'asc') {
+        sortRules[0].dir = 'desc';
+      } else {
+        sortRules = [];
+      }
+    } else {
+      sortRules = [{ column: colKey, dir: 'asc' }];
+    }
+  }
+
+  renderInvoices();
+}
+
+function getCustomerName(inv) {
+  const liveCust = state.customers.find(c => c.id === inv.customer_id);
+  return (liveCust?.name || inv.customer_snapshot?.name || 'Unknown').toLowerCase();
+}
+
 function renderInvoices() {
   const filterCustId = document.getElementById('filter-customer').value;
-  const sortOption = document.getElementById('sort-invoices').value;
 
   const cSel = document.getElementById('filter-customer');
   cSel.innerHTML = '<option value="">All Customers</option>' + 
@@ -691,26 +724,53 @@ function renderInvoices() {
   let filtered = [...state.invoices];
   if (filterCustId) filtered = filtered.filter(i => i.customer_id === filterCustId);
 
-  // Sorting Logic
-  filtered.sort((a, b) => {
-    const custA = state.customers.find(c => c.id === a.customer_id)?.name.toLowerCase() || '';
-    const custB = state.customers.find(c => c.id === b.customer_id)?.name.toLowerCase() || '';
+  // Apply multi-rule sorting
+  if (sortRules.length > 0) {
+    filtered.sort((a, b) => {
+      for (let rule of sortRules) {
+        let valA, valB, res = 0;
 
-    if (sortOption === 'created_desc') return new Date(b.created_at) - new Date(a.created_at);
-    if (sortOption === 'created_asc') return new Date(a.created_at) - new Date(b.created_at);
-    if (sortOption === 'completed_desc') return new Date(b.completed_at || 0) - new Date(a.completed_at || 0);
-    if (sortOption === 'completed_asc') return new Date(a.completed_at || 0) - new Date(b.completed_at || 0);
-    if (sortOption === 'customer_asc') return custA.localeCompare(custB);
-    if (sortOption === 'customer_desc') return custB.localeCompare(custA);
-    return 0;
+        if (rule.column === 'customer') {
+          valA = getCustomerName(a);
+          valB = getCustomerName(b);
+          res = valA.localeCompare(valB);
+        } else if (rule.column === 'created_at') {
+          valA = new Date(a.created_at || 0).getTime();
+          valB = new Date(b.created_at || 0).getTime();
+          res = valA - valB;
+        } else if (rule.column === 'completed_at') {
+          valA = new Date(a.completed_at || 0).getTime();
+          valB = new Date(b.completed_at || 0).getTime();
+          res = valA - valB;
+        }
+
+        if (res !== 0) {
+          return rule.dir === 'asc' ? res : -res;
+        }
+      }
+      return 0;
+    });
+  }
+
+  // Update table header sort indicators
+  ['customer', 'created_at', 'completed_at'].forEach(col => {
+    const iconEl = document.getElementById(`sort-icon-${col}`);
+    const ruleIdx = sortRules.findIndex(r => r.column === col);
+    if (ruleIdx > -1) {
+      const arrow = sortRules[ruleIdx].dir === 'asc' ? '▲' : '▼';
+      const orderTag = sortRules.length > 1 ? ` ${ruleIdx + 1}` : '';
+      iconEl.innerText = `${arrow}${orderTag}`;
+    } else {
+      iconEl.innerText = '';
+    }
   });
 
   const tbody = document.getElementById('invoice-list-body');
   tbody.innerHTML = filtered.map(inv => {
-    const cust = state.customers.find(c => c.id === inv.customer_id);
+    const custName = state.customers.find(c => c.id === inv.customer_id)?.name || inv.customer_snapshot?.name || 'Unknown';
     return `
       <tr>
-        <td>${cust ? cust.name : 'Unknown'}</td>
+        <td>${custName}</td>
         <td>${formatDate(inv.created_at)}</td>
         <td>${formatDate(inv.completed_at)}</td>
         <td><strong style="color: ${inv.status === 'completed' ? '#10b981' : '#f59e0b'}">${inv.status.toUpperCase()}</strong></td>
