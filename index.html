@@ -314,8 +314,8 @@ async function initAppData() {
   
   if (state.businesses.length === 0) {
     await db.from('businesses').insert([
-      { user_id: currentUser.id, nickname: 'Default Profile', name: 'My Main Company', address: 'Address 1', is_default: true },
-      { user_id: currentUser.id, nickname: 'Secondary Profile', name: 'My Secondary Company', address: 'Address 2', is_default: false }
+      { user_id: currentUser.id, nickname: 'Andersen', name: 'Andersen', address: 'Address 1', is_default: true },
+      { user_id: currentUser.id, nickname: 'Secondary', name: 'Secondary', address: 'Address 2', is_default: false }
     ]);
     await fetchAllData();
   }
@@ -386,7 +386,7 @@ function restorePersistedForm() {
     cSel.innerHTML = state.customers.map(c => `<option value="${c.id}" ${c.id === activeDraft.customerId ? 'selected' : ''}>${c.name}</option>`).join('');
 
     const bSel = document.getElementById('inv-biz-select');
-    bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === activeDraft.businessId ? 'selected' : ''}>${b.nickname}</option>`).join('');
+    bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === activeDraft.businessId ? 'selected' : ''}>${b.nickname || b.name || 'Business Profile'}</option>`).join('');
 
     document.getElementById('inv-tax-rate').value = activeDraft.taxRate || '0.09';
     document.getElementById('inv-target-price').value = activeDraft.targetPrice || '';
@@ -415,14 +415,14 @@ function renderBusinesses() {
   state.businesses.slice(0, 2).forEach((biz, idx) => {
     const card = document.getElementById(`biz-card-${idx}`);
     card.innerHTML = `
-      <h3>${biz.nickname || 'Business ' + (idx+1)}</h3>
+      <h3>${biz.nickname || biz.name || 'Business ' + (idx+1)}</h3>
       <div class="form-group">
         <label>Nickname:</label>
-        <input type="text" value="${biz.nickname}" onchange="updateBiz('${biz.id}', 'nickname', this.value)">
+        <input type="text" value="${biz.nickname || ''}" onchange="updateBiz('${biz.id}', 'nickname', this.value)">
       </div>
       <div class="form-group">
         <label>Company Name:</label>
-        <input type="text" value="${biz.name}" onchange="updateBiz('${biz.id}', 'name', this.value)">
+        <input type="text" value="${biz.name || ''}" onchange="updateBiz('${biz.id}', 'name', this.value)">
       </div>
       <div class="form-group">
         <label>Address & Details:</label>
@@ -524,7 +524,7 @@ function openCreateInvoice() {
   
   const defaultBiz = state.businesses.find(b => b.is_default) || state.businesses[0];
   const bSel = document.getElementById('inv-biz-select');
-  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === defaultBiz?.id ? 'selected' : ''}>${b.nickname}</option>`).join('');
+  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === defaultBiz?.id ? 'selected' : ''}>${b.nickname || b.name || 'Business Profile'}</option>`).join('');
 
   document.getElementById('inv-target-price').value = '';
   renderLineItems();
@@ -544,7 +544,7 @@ function editDraftInvoice(id) {
   cSel.innerHTML = state.customers.map(c => `<option value="${c.id}" ${c.id === inv.customer_id ? 'selected' : ''}>${c.name}</option>`).join('');
   
   const bSel = document.getElementById('inv-biz-select');
-  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === inv.business_id ? 'selected' : ''}>${b.nickname}</option>`).join('');
+  bSel.innerHTML = state.businesses.map(b => `<option value="${b.id}" ${b.id === inv.business_id ? 'selected' : ''}>${b.nickname || b.name || 'Business Profile'}</option>`).join('');
 
   document.getElementById('inv-tax-rate').value = inv.tax_rate;
   document.getElementById('inv-target-price').value = inv.target_final_price || '';
